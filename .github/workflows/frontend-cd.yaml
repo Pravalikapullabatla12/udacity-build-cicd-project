@@ -77,6 +77,7 @@ jobs:
 
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
+      image: ${{ steps.image.outputs.image }}
 
     env:
       REACT_APP_MOVIE_API_URL: ${{ vars.REACT_APP_MOVIE_API_URL }}
@@ -177,11 +178,9 @@ jobs:
       - name: Set frontend image
         working-directory: starter/frontend/k8s
         env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          ECR_REPOSITORY: ${{ secrets.ECR_FRONTEND_REPOSITORY }}
-          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          FRONTEND_IMAGE: ${{ needs.build.outputs.image }}
         run: |
-          kustomize edit set image frontend=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+          kustomize edit set image frontend=${FRONTEND_IMAGE}
 
       - name: Deploy frontend
         working-directory: starter/frontend/k8s
