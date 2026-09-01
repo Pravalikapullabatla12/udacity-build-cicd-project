@@ -10,6 +10,11 @@ on:
   workflow_dispatch:
 
 jobs:
+
+  # ============================================================
+  # 1. FRONTEND LINT
+  # ============================================================
+
   lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
@@ -38,6 +43,11 @@ jobs:
       - name: Run lint
         working-directory: starter/frontend
         run: npm run lint
+
+
+  # ============================================================
+  # 2. FRONTEND TESTS
+  # ============================================================
 
   test:
     name: Frontend Tests
@@ -68,6 +78,11 @@ jobs:
         working-directory: starter/frontend
         run: CI=true npm test -- --watchAll=false
 
+
+  # ============================================================
+  # 3. BUILD AND PUSH FRONTEND IMAGE
+  # ============================================================
+
   build:
     name: Build and Push Frontend
     runs-on: ubuntu-latest
@@ -85,6 +100,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # Setup NodeJS
+      # --------------------------------------------------------
 
       - name: Setup NodeJS
         uses: actions/setup-node@v4
@@ -107,6 +127,11 @@ jobs:
         working-directory: starter/frontend
         run: CI=true npm test -- --watchAll=false
 
+
+      # --------------------------------------------------------
+      # Configure AWS
+      # --------------------------------------------------------
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -114,9 +139,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+
+      # --------------------------------------------------------
+      # Verify AWS identity
+      # --------------------------------------------------------
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # --------------------------------------------------------
+      # Login to Amazon ECR
+      # --------------------------------------------------------
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+
+      # --------------------------------------------------------
+      # Set image tag
+      # --------------------------------------------------------
 
       - name: Set image tag
         id: image
@@ -128,6 +172,11 @@ jobs:
           echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
+
+      # --------------------------------------------------------
+      # Build Docker image
+      # --------------------------------------------------------
+
       - name: Build Docker image
         working-directory: starter/frontend
         env:
@@ -136,9 +185,14 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
-            --build-arg REACT_APP_MOVIE_API_URL=${REACT_APP_MOVIE_API_URL} \
+            --build-arg REACT_APP_MOVIE_API_URL="${REACT_APP_MOVIE_API_URL}" \
             --tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} \
             .
+
+
+      # --------------------------------------------------------
+      # Push Docker image to ECR
+      # --------------------------------------------------------
 
       - name: Push Docker image to ECR
         env:
@@ -148,14 +202,25 @@ jobs:
         run: |
           docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
+
+  # ============================================================
+  # 4. DEPLOY FRONTEND TO EKS
+  # ============================================================
+
   deploy:
     name: Deploy Frontend to EKS
     runs-on: ubuntu-latest
     needs: build
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # Configure AWS
+      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -164,16 +229,40 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+
+      # --------------------------------------------------------
+      # Verify AWS identity
+      # --------------------------------------------------------
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # --------------------------------------------------------
+      # Configure kubectl for EKS
+      # --------------------------------------------------------
+
       - name: Configure kubectl
         run: |
           aws eks update-kubeconfig \
             --name "${{ secrets.EKS_CLUSTER_NAME }}" \
             --region "${{ secrets.AWS_REGION }}"
 
+
+      # --------------------------------------------------------
+      # Install kustomize
+      # --------------------------------------------------------
+
       - name: Install kustomize
         run: |
           curl -sL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
           sudo mv kustomize /usr/local/bin/kustomize
+
+
+      # --------------------------------------------------------
+      # Set frontend image
+      # --------------------------------------------------------
 
       - name: Set frontend image
         working-directory: starter/frontend/k8s
@@ -182,10 +271,20 @@ jobs:
         run: |
           kustomize edit set image frontend=${FRONTEND_IMAGE}
 
+
+      # --------------------------------------------------------
+      # Deploy frontend
+      # --------------------------------------------------------
+
       - name: Deploy frontend
         working-directory: starter/frontend/k8s
         run: |
           kustomize build | kubectl apply -f -
+
+
+      # --------------------------------------------------------
+      # Verify frontend deployment
+      # --------------------------------------------------------
 
       - name: Verify frontend deployment
         run: |
