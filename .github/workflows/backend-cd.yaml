@@ -201,7 +201,7 @@ jobs:
 
       - name: Verify backend deployment
         run: |
-          kubectl rollout status deployment/backend --timeout=180s || true
+          kubectl rollout status deployment/backend || true
 
           echo "========== BACKEND DEPLOYMENT =========="
           kubectl get deployment backend -o wide || true
