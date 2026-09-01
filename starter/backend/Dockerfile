@@ -1,25 +1,30 @@
-FROM public.ecr.aws/docker/library/python:3.10-slim
+```dockerfile
+FROM public.ecr.aws/docker/library/python:3.10-alpine
 
 ENV FLASK_RUN_HOST=0.0.0.0
 
 WORKDIR /
 
-RUN useradd -u 1000 -m app
+RUN adduser -u 1000 -D app
 
-RUN apt-get update && \
-    apt-get install -y \
-    build-essential \
-    libpcre2-dev \
-    libffi-dev \
-    && pip install pipenv && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk update && \
+  apk add \
+  pcre \
+  pcre-dev \
+  build-base \
+  gcc \
+  linux-headers \
+  openssl \
+  libffi-dev \
+  && pip install pipenv
 
 RUN mkdir -p /var/www/app && mkdir /app
 
-COPY Pipfile Pipfile.lock /app/
+ENV CFLAGS="-Wno-error=incompatible-pointer-types"
 
-RUN cd /app && pipenv install --system --deploy
+RUN cd /app && pip install flask uwsgi==2.0.26 flask-cors
 
 COPY . /app
 
-CMD ["uwsgi", "--http", ":5000", "--master", "--enable-threads", "-s", "/var/www/app/app.sock", "--manage-script-name", "--mount", "/=app:app"]
+CMD uwsgi --http :5000 --master --enable-threads -s /var/www/app/app.sock --manage-script-name --mount /=app:app
+```
