@@ -80,12 +80,13 @@ jobs:
 
 
   # ============================================================
-  # 3. BUILD AND PUSH FRONTEND IMAGE
+  # 3. BUILD AND PUSH FRONTEND
   # ============================================================
 
   build:
     name: Build and Push Frontend
     runs-on: ubuntu-latest
+
     needs:
       - lint
       - test
@@ -98,9 +99,9 @@ jobs:
       REACT_APP_MOVIE_API_URL: ${{ vars.REACT_APP_MOVIE_API_URL }}
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
-
 
       # --------------------------------------------------------
       # Setup NodeJS
@@ -127,7 +128,6 @@ jobs:
         working-directory: starter/frontend
         run: CI=true npm test -- --watchAll=false
 
-
       # --------------------------------------------------------
       # Configure AWS
       # --------------------------------------------------------
@@ -139,7 +139,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-
       # --------------------------------------------------------
       # Verify AWS identity
       # --------------------------------------------------------
@@ -148,7 +147,6 @@ jobs:
         run: |
           aws sts get-caller-identity
 
-
       # --------------------------------------------------------
       # Login to Amazon ECR
       # --------------------------------------------------------
@@ -156,7 +154,6 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-
 
       # --------------------------------------------------------
       # Set image tag
@@ -171,7 +168,6 @@ jobs:
         run: |
           echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-
 
       # --------------------------------------------------------
       # Build Docker image
@@ -188,7 +184,6 @@ jobs:
             --build-arg REACT_APP_MOVIE_API_URL="${REACT_APP_MOVIE_API_URL}" \
             --tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} \
             .
-
 
       # --------------------------------------------------------
       # Push Docker image to ECR
@@ -210,13 +205,13 @@ jobs:
   deploy:
     name: Deploy Frontend to EKS
     runs-on: ubuntu-latest
+
     needs: build
 
     steps:
 
       - name: Checkout code
         uses: actions/checkout@v4
-
 
       # --------------------------------------------------------
       # Configure AWS
@@ -229,7 +224,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-
       # --------------------------------------------------------
       # Verify AWS identity
       # --------------------------------------------------------
@@ -238,9 +232,8 @@ jobs:
         run: |
           aws sts get-caller-identity
 
-
       # --------------------------------------------------------
-      # Configure kubectl for EKS
+      # Configure kubectl
       # --------------------------------------------------------
 
       - name: Configure kubectl
@@ -249,6 +242,14 @@ jobs:
             --name "${{ secrets.EKS_CLUSTER_NAME }}" \
             --region "${{ secrets.AWS_REGION }}"
 
+      # --------------------------------------------------------
+      # Check Kubernetes cluster
+      # --------------------------------------------------------
+
+      - name: Check Kubernetes cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
 
       # --------------------------------------------------------
       # Install kustomize
@@ -258,7 +259,6 @@ jobs:
         run: |
           curl -sL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
           sudo mv kustomize /usr/local/bin/kustomize
-
 
       # --------------------------------------------------------
       # Set frontend image
@@ -271,6 +271,14 @@ jobs:
         run: |
           kustomize edit set image frontend=${FRONTEND_IMAGE}
 
+      # --------------------------------------------------------
+      # Show generated Kubernetes configuration
+      # --------------------------------------------------------
+
+      - name: Show Kubernetes configuration
+        working-directory: starter/frontend/k8s
+        run: |
+          kustomize build .
 
       # --------------------------------------------------------
       # Deploy frontend
@@ -281,6 +289,13 @@ jobs:
         run: |
           kustomize build | kubectl apply -f -
 
+      # --------------------------------------------------------
+      # Wait for deployment
+      # --------------------------------------------------------
+
+      - name: Wait for frontend deployment
+        run: |
+          kubectl rollout status deployment/frontend
 
       # --------------------------------------------------------
       # Verify frontend deployment
@@ -288,6 +303,61 @@ jobs:
 
       - name: Verify frontend deployment
         run: |
-          kubectl rollout status deployment/frontend --timeout=180s
-          kubectl get pods
+          echo "========== DEPLOYMENT =========="
+          kubectl get deployment frontend -o wide
+
+          echo "========== REPLICASETS =========="
+          kubectl get replicasets
+
+          echo "========== PODS =========="
+          kubectl get pods -o wide
+
+          echo "========== SERVICES =========="
           kubectl get services
+
+      # --------------------------------------------------------
+      # Deployment diagnostics if rollout fails
+      # --------------------------------------------------------
+
+      - name: Deployment diagnostics
+        if: failure()
+        run: |
+          echo "============================================================"
+          echo "DEPLOYMENT STATUS"
+          echo "============================================================"
+          kubectl get deployment frontend -o wide || true
+
+          echo "============================================================"
+          echo "REPLICASETS"
+          echo "============================================================"
+          kubectl get replicasets || true
+
+          echo "============================================================"
+          echo "PODS"
+          echo "============================================================"
+          kubectl get pods -o wide || true
+
+          echo "============================================================"
+          echo "POD DESCRIPTIONS"
+          echo "============================================================"
+          kubectl describe pods -l app=frontend || true
+
+          echo "============================================================"
+          echo "DEPLOYMENT DESCRIPTION"
+          echo "============================================================"
+          kubectl describe deployment frontend || true
+
+          echo "============================================================"
+          echo "POD LOGS"
+          echo "============================================================"
+          kubectl logs -l app=frontend --all-containers=true --tail=200 || true
+
+          echo "============================================================"
+          echo "PREVIOUS POD LOGS"
+          echo "============================================================"
+          kubectl logs -l app=frontend --all-containers=true --previous --tail=200 || true
+
+          echo "============================================================"
+          echo "KUBERNETES EVENTS"
+          echo "============================================================"
+          kubectl get events --sort-by=.lastTimestamp || true
