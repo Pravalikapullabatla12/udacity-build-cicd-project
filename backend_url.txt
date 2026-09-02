@@ -1,1 +1,0 @@
-http://ac41fe0b2212744238f614963bd6ed63-1707490776.us-east-1.elb.amazonaws.com/movies/
